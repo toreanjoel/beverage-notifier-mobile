@@ -11,6 +11,8 @@ interface ScheduleData {
   minutes?: number;
   seconds?: number;
   milliseconds?: number;
+  title?: string;
+  body?: string;
 }
 
 class Notifications {
@@ -74,7 +76,14 @@ class Notifications {
     const hasPermissions = await this.checkPermissions();
 
     // destructure schedule time - default milliseconds if not set
-    const {hours = 0, minutes = 0, seconds = 0, milliseconds = 500} = data;
+    const {
+      hours = 0,
+      minutes = 0,
+      seconds = 0,
+      milliseconds = 500,
+      title = 'Some random tile',
+      body = 'Some random tile',
+    } = data;
     // If the user has granted the permission, schedule the notification
     if (hasPermissions) {
       // Create a timestamp trigger for the notification - we set it 5 seconds in the future
@@ -98,8 +107,8 @@ class Notifications {
       // Create the notification details
       const notificationDetails = {
         id: '1',
-        title: `🔔 Reminder Title: ${date.getTime().toString()}`,
-        body: 'Tap on it to check',
+        title,
+        body,
         android: {
           channelId,
           pressAction: {

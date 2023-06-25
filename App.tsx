@@ -20,6 +20,11 @@ import BleManager, {
   BleStopScanEvent,
   Peripheral,
 } from 'react-native-ble-manager'; // Peripheral, // BleScanMode, // BleScanMatchMode, // BleScanCallbackType, // BleManagerDidUpdateValueForCharacteristicEvent, // BleDisconnectPeripheralEvent,
+
+// APP
+const supported_name = 'beverage_notifier';
+
+// BLE constants
 const BleManagerModule = NativeModules.BleManager;
 const bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
 
@@ -132,11 +137,6 @@ function App(): JSX.Element {
    */
   const handleStopScanning = (event: BleStopScanEvent) => {
     // // set scanning state - true
-    // BleManager.stopScan().then(resp => {
-    //   // Success code
-    //   console.log('Scan stopped', resp);
-    //   setScanningState(false);
-    // });
     console.log('Stop Scanning', event);
     setScanningState(false);
   };
@@ -145,10 +145,9 @@ function App(): JSX.Element {
    * Disconnect
    */
   const handleDisconnected = (event: BleDisconnectPeripheralEvent) => {
-    setConnectedDevice(null);
-    setTimeout(() => {
-      connect(devices[event.peripheral]);
-    }, 1000);
+    // setTimeout(() => {
+    //   connect(devices[event.peripheral]);
+    // }, 1000);
     console.log('Disconnected', event);
   };
 
@@ -166,9 +165,10 @@ function App(): JSX.Element {
    * Characteristing Value Update
    */
   const handleDiscover = (device: Peripheral) => {
-    console.log('device - found', device);
-    // set scanning state - true
-    setDeviceState({...devices, ...{[device.id]: device}}); // the type data does not match for device found
+    // we only add the devices supported
+    if (isSupported(device.name)) {
+      setDeviceState({...devices, ...{[device.id]: device}}); // the type data does not match for device found
+    }
   };
 
   /**
@@ -195,10 +195,12 @@ function App(): JSX.Element {
     // set scanning state - true
     BleManager.disconnect(device.id)
       .then(() => {
-        device;
-        // Success code
         setConnectedDevice(null);
         console.log('Disconnected');
+        Notification.scheduleNotification({
+          title: `Disconnected from: ${device.name}`,
+          body: 'Successfully disconnected from BLE device',
+        });
       })
       .catch(error => {
         // Failure code
@@ -216,8 +218,11 @@ function App(): JSX.Element {
       .then(() => {
         // Success code
         setConnectedDevice(device);
-        console.log('Connected');
         bond(device);
+        Notification.scheduleNotification({
+          title: `Connected to: ${device.name}`,
+          body: 'Successfully connected to BLE device',
+        });
       })
       .catch(error => {
         // Failure code
@@ -233,7 +238,7 @@ function App(): JSX.Element {
     setScanningState(true);
     console.log('scanning started');
     // https://github.com/innoveit/react-native-ble-manager
-    BleManager.scan([], 2, false).then(() => {
+    BleManager.scan([], 1, false).then(() => {
       // Success code
       console.log('Scan started');
     });
@@ -257,7 +262,7 @@ function App(): JSX.Element {
       <TouchableHighlight
         style={[styles.item, activeConnectedMatch ? styles.activeDevice : {}]}
         onPress={() =>
-          activeConnectedMatch ? disconnect(item) : connect(item)
+          !activeConnectedMatch ? connect(item) : disconnect(item)
         }
         key={item.id}>
         <View>
@@ -266,6 +271,29 @@ function App(): JSX.Element {
           <Text>ID: {item.id}</Text>
         </View>
       </TouchableHighlight>
+    );
+  };
+
+  /**
+   * Checks the support for crud made devices only - ignores the rest
+   */
+  const isSupported = (deviceName: Peripheral['name']) => {
+    const charList = deviceName?.split('::') ?? ['']; // default to something that wont match
+    return charList[charList.length - 1] === supported_name;
+  };
+
+  /**
+   * Renders a no devices view
+   * @returns
+   */
+  const renderNoDevices = () => {
+    return (
+      <View style={[styles.container]}>
+        <Text style={{color: '#222222', fontSize: 20, alignSelf: 'center'}}>
+          {' '}
+          No devices to show
+        </Text>
+      </View>
     );
   };
 
@@ -278,18 +306,58 @@ function App(): JSX.Element {
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-          <Text style={[styles.text_header]}> crud.sh </Text>
-          <Text style={[styles.text_sub_header]}> ☕ == 🧊 </Text>
+          <Text style={[styles.text_header]}>crud.sh</Text>
+          <Text style={[styles.text_sub_header]}>beverage notifier</Text>
+          <Text style={[styles.text_sub_header]}> --- </Text>
+          <Text
+            style={[
+              styles.text_sub_header,
+              styles.text_sm_italic,
+              styles.text_w_300,
+              {alignSelf: 'center'},
+            ]}>
+            {connectedDevice ? 'To disconnect from device, tap it again' : ' '}
+          </Text>
         </View>
-        <ScrollView style={[styles.section_content]}>
-          {Object.keys(devices).map(id => renderItem(devices[id]))}
-        </ScrollView>
+        {!isScanning ? (
+          <>
+            {!connectedDevice ? (
+              <ScrollView style={[styles.section_content]}>
+                {/* Do we have devices? */}
+                {Object.keys(devices).length === 0
+                  ? renderNoDevices()
+                  : Object.keys(devices).map(id => renderItem(devices[id]))}
+              </ScrollView>
+            ) : (
+              <View style={[styles.container]}>
+                {renderItem(connectedDevice)}
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={[styles.container]}>
+            <Text style={{alignSelf: 'center'}}>Searching...</Text>
+          </View>
+        )}
         <View>
           {/* We toggle between scan and stop state */}
+          <Text style={[styles.text_sm_italic, {alignSelf: 'center'}]}>
+            {connectedDevice
+              ? 'Disconnect previous device before searching'
+              : ' '}
+          </Text>
           {!isScanning ? (
-            <Button title="Scan" onPress={startScan} />
+            <Button
+              title="Scan"
+              disabled={!!connectedDevice}
+              onPress={startScan}
+            />
           ) : (
-            <Button title="Stop Searching" onPress={stopScanning} />
+            <Button
+              title="Stop Searching"
+              disabled={!!connectedDevice}
+              onPress={stopScanning}
+            />
           )}
           <Button
             title="Notfification (manual)"
@@ -314,6 +382,7 @@ const styles = StyleSheet.create({
   },
   item: {
     padding: 10,
+    backgroundColor: '#111111',
   },
   activeDevice: {
     backgroundColor: '#2b2b2b',
@@ -323,6 +392,14 @@ const styles = StyleSheet.create({
   },
   text_sub_header: {
     fontSize: 20,
+  },
+  text_sm_italic: {
+    padding: 5,
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
+  text_w_300: {
+    maxWidth: 300,
   },
 });
 
