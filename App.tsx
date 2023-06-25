@@ -19,7 +19,7 @@ import BleManager, {
   BleManagerDidUpdateValueForCharacteristicEvent,
   BleStopScanEvent,
   Peripheral,
-} from 'react-native-ble-manager'; // Peripheral, // BleScanMode, // BleScanMatchMode, // BleScanCallbackType, // BleManagerDidUpdateValueForCharacteristicEvent, // BleDisconnectPeripheralEvent,
+} from 'react-native-ble-manager';
 
 // APP
 const supported_name = 'beverage_notifier';
@@ -36,6 +36,7 @@ function App(): JSX.Element {
   const [connectedDevice, setConnectedDevice] = useState<Peripheral | null>(
     null,
   );
+  const [deviceStatus, setDeviceStatus] = useState<string | null>(null);
 
   // rerenders when data changes or we can rerender the app data here
   useEffect(() => {
@@ -139,6 +140,7 @@ function App(): JSX.Element {
     // // set scanning state - true
     console.log('Stop Scanning', event);
     setScanningState(false);
+    setDeviceStatus('Stopped scanning');
   };
 
   /**
@@ -149,6 +151,7 @@ function App(): JSX.Element {
     //   connect(devices[event.peripheral]);
     // }, 1000);
     console.log('Disconnected', event);
+    setDeviceStatus('Device disconnected');
   };
 
   /**
@@ -159,6 +162,7 @@ function App(): JSX.Element {
   ) => {
     // set scanning state - true
     console.log('characteristic value update', data);
+    setDeviceStatus('Characteristic value update');
   };
 
   /**
@@ -168,6 +172,7 @@ function App(): JSX.Element {
     // we only add the devices supported
     if (isSupported(device.name)) {
       setDeviceState({...devices, ...{[device.id]: device}}); // the type data does not match for device found
+      setDeviceStatus('Device found');
     }
   };
 
@@ -178,9 +183,11 @@ function App(): JSX.Element {
     BleManager.createBond(device.id)
       .then(() => {
         console.log('createBond success or there is already an existing one');
+        setDeviceStatus('Bonding success');
       })
       .catch(error => {
         console.log('fail to bond', error);
+        setDeviceStatus('Bonding failed');
       });
   };
 
@@ -196,6 +203,7 @@ function App(): JSX.Element {
     BleManager.disconnect(device.id)
       .then(() => {
         setConnectedDevice(null);
+        setDeviceStatus('Disconnect success');
         console.log('Disconnected');
         Notification.scheduleNotification({
           title: `Disconnected from: ${device.name}`,
@@ -205,6 +213,7 @@ function App(): JSX.Element {
       .catch(error => {
         // Failure code
         console.log(error);
+        setDeviceStatus('Disconnect error');
       });
   };
 
@@ -218,6 +227,7 @@ function App(): JSX.Element {
       .then(() => {
         // Success code
         setConnectedDevice(device);
+        setDeviceStatus('Connect success');
         bond(device);
         Notification.scheduleNotification({
           title: `Connected to: ${device.name}`,
@@ -227,6 +237,7 @@ function App(): JSX.Element {
       .catch(error => {
         // Failure code
         console.log(error);
+        setDeviceStatus('Connect error');
       });
   };
 
@@ -238,21 +249,31 @@ function App(): JSX.Element {
     setScanningState(true);
     console.log('scanning started');
     // https://github.com/innoveit/react-native-ble-manager
-    BleManager.scan([], 1, false).then(() => {
-      // Success code
-      console.log('Scan started');
-    });
+    BleManager.scan([], 1, false)
+      .then(() => {
+        // Success code
+        console.log('Scan started');
+        setDeviceStatus('Scanning');
+      })
+      .catch(_err => {
+        setDeviceStatus('Scanning error');
+      });
   };
 
   /**
    * Stop Scanning
    */
   const stopScanning = () => {
-    BleManager.stopScan().then(resp => {
-      // Success code
-      console.log('Scan stopped', resp);
-      setScanningState(false);
-    });
+    BleManager.stopScan()
+      .then(resp => {
+        // Success code
+        console.log('Scan stopped', resp);
+        setScanningState(false);
+        setDeviceStatus('Scanning stop');
+      })
+      .catch(_err => {
+        setDeviceStatus('Scanning stop error');
+      });
     setScanningState(false);
   };
 
@@ -346,6 +367,11 @@ function App(): JSX.Element {
               ? 'Disconnect previous device before searching'
               : ' '}
           </Text>
+          {deviceStatus && (
+            <Text style={[[styles.text_sub_header, styles.text_sm_italic]]}>
+              {deviceStatus}
+            </Text>
+          )}
           {!isScanning ? (
             <Button
               title="Scan"
@@ -378,7 +404,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
   },
   section_content: {
-    flex: 4,
+    flex: 1,
   },
   item: {
     padding: 10,
