@@ -147,11 +147,13 @@ function App(): JSX.Element {
    * Disconnect
    */
   const handleDisconnected = (event: BleDisconnectPeripheralEvent) => {
-    // setTimeout(() => {
-    //   connect(devices[event.peripheral]);
-    // }, 1000);
-    console.log('Disconnected', event);
-    setDeviceStatus('Device disconnected');
+    // check if we had a device in memory to connect to
+    if (connectedDevice !== null) {
+      connect(connectedDevice);
+    }
+
+    setDeviceStatus('Disconnected - lost connection');
+    console.log('Disconnected - lost connection to device', event);
   };
 
   /**
@@ -199,16 +201,19 @@ function App(): JSX.Element {
    * disconnect from peripheral
    */
   const disconnect = (device: Peripheral) => {
-    // set scanning state - true
+    // Remove device from memory
+    setConnectedDevice(null);
+
     BleManager.disconnect(device.id)
       .then(() => {
-        setConnectedDevice(null);
         setDeviceStatus('Disconnect success');
         console.log('Disconnected');
-        Notification.scheduleNotification({
-          title: `Disconnected from: ${device.name}`,
-          body: 'Successfully disconnected from BLE device',
-        });
+        // remove from devices list and update state - we dont need to remove from list
+        // we will however not be allowed to connect untill next start device cycle
+
+        // const updated_devices = Object.assign({}, devices);
+        // delete updated_devices[device.id];
+        // setDeviceState({...updated_devices});
       })
       .catch(error => {
         // Failure code
@@ -223,6 +228,7 @@ function App(): JSX.Element {
   const connect = async (device: Peripheral) => {
     // we try to connect to the device here
     console.log('connect', device);
+    setDeviceStatus('Connecting...');
     BleManager.connect(device.id, {autoconnect: true})
       .then(() => {
         // Success code
@@ -249,7 +255,7 @@ function App(): JSX.Element {
     setScanningState(true);
     console.log('scanning started');
     // https://github.com/innoveit/react-native-ble-manager
-    BleManager.scan([], 1, false)
+    BleManager.scan([], 5, false)
       .then(() => {
         // Success code
         console.log('Scan started');
@@ -361,20 +367,18 @@ function App(): JSX.Element {
           </View>
         )}
         <View>
-          {/* We toggle between scan and stop state */}
-          <Text style={[styles.text_sm_italic, {alignSelf: 'center'}]}>
-            {connectedDevice
-              ? 'Disconnect previous device before searching'
-              : ' '}
-          </Text>
           {deviceStatus && (
-            <Text style={[[styles.text_sub_header, styles.text_sm_italic]]}>
+            <Text style={[styles.text_sm_italic, {alignSelf: 'center'}]}>
               {deviceStatus}
             </Text>
           )}
           {!isScanning ? (
             <Button
-              title="Scan"
+              title={
+                connectedDevice
+                  ? 'Disconnect previous device before searching'
+                  : 'Scan'
+              }
               disabled={!!connectedDevice}
               onPress={startScan}
             />
@@ -385,12 +389,6 @@ function App(): JSX.Element {
               onPress={stopScanning}
             />
           )}
-          <Button
-            title="Notfification (manual)"
-            onPress={() => {
-              Notification.scheduleNotification({});
-            }}
-          />
         </View>
       </View>
     </SafeAreaView>
