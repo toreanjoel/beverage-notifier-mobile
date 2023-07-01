@@ -84,6 +84,7 @@ class Notifications {
       title = 'Some random tile',
       body = 'Some random tile',
     } = data;
+
     // If the user has granted the permission, schedule the notification
     if (hasPermissions) {
       // Create a timestamp trigger for the notification - we set it 5 seconds in the future
@@ -139,6 +140,7 @@ class Notifications {
     if (!data) {
       return [];
     }
+
     return data;
   }
 }

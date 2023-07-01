@@ -20,6 +20,7 @@ import BleManager, {
   BleStopScanEvent,
   Peripheral,
 } from 'react-native-ble-manager';
+import {Buffer} from 'buffer';
 
 // APP
 const supported_name = 'beverage_notifier';
@@ -27,6 +28,69 @@ const supported_name = 'beverage_notifier';
 // BLE constants
 const BleManagerModule = NativeModules.BleManager;
 const bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
+
+// Helpers
+
+/**
+ * Get the service and characteristic uuids
+ * Here we pull out the characteristing and service from the recieved data from the connected peripheral.
+ * The data returns the properties as a list and we need to get the correct uuid values that match regex 128bit uuid
+ * @param peripheralRetrievedInfo
+ */
+
+type CHARACTERISTIC = {
+  characteristic: string;
+  service: string;
+  properties: unknown; // this we dont know or use for now
+  descriptors?: unknown; // this we dont know or use for now
+};
+
+type SERVICE = {
+  uuid: string;
+};
+
+function getServiceCharacteristic(peripheralRetrievedInfo: any) {
+  let result: {
+    service: string | null;
+    characteristic: string | null;
+  } = {
+    service: null,
+    characteristic: null,
+  };
+
+  const {services, characteristics} = peripheralRetrievedInfo;
+
+  if (!services) {
+    return result;
+  }
+  if (!characteristics) {
+    return result;
+  }
+
+  // regular expression to make sure the value matches the type of uuid
+  const regexUUID =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  // NOTE: NOT IDEAL TO LOOP AND REPLACE LATEST CHARACTERISTIC/SERVICE AS THERE CAN BE MANY
+  // check services if we find a match
+  services.forEach((element: SERVICE) => {
+    // we make sure it is a uuid that we add
+    if (regexUUID.test(element.uuid)) {
+      result.service = element.uuid;
+    }
+  });
+
+  // NOTE: NOT IDEAL TO LOOP AND REPLACE LATEST CHARACTERISTIC/SERVICE AS THERE CAN BE MANY
+  //check characteristics if we find a match
+  characteristics.forEach((element: CHARACTERISTIC) => {
+    // we make sure it is a uuid that we add
+    if (regexUUID.test(element.characteristic)) {
+      result.characteristic = element.characteristic;
+    }
+  });
+
+  return result;
+}
 
 function App(): JSX.Element {
   const [isScanning, setScanningState] = useState<boolean>(false);
@@ -37,6 +101,10 @@ function App(): JSX.Element {
     null,
   );
   const [deviceStatus, setDeviceStatus] = useState<string | null>(null);
+  const [deviceValue, setDeviceValue] = useState<{
+    peripheral: string;
+    value: number;
+  } | null>(null);
 
   // rerenders when data changes or we can rerender the app data here
   useEffect(() => {
@@ -80,6 +148,28 @@ function App(): JSX.Element {
       }
     };
   });
+
+  /**
+   * Check if the value changes and is not nil on a connected device
+   */
+  useEffect(() => {
+    if (!connectedDevice) {
+      return;
+    }
+
+    if (!deviceValue) {
+      return;
+    }
+
+    const {value} = deviceValue;
+    console.log(value);
+    if (value < 30) {
+      Notification.scheduleNotification({
+        title: 'Beverage temps are getting colder...',
+        body: `Current temps: ${value}`,
+      });
+    }
+  }, [connectedDevice, deviceValue]);
 
   /**
    * Handle the permissions that needs to be asked and set before anything can be used
@@ -147,9 +237,14 @@ function App(): JSX.Element {
    * Disconnect
    */
   const handleDisconnected = (event: BleDisconnectPeripheralEvent) => {
+    // clear the values regarless when a disconnect happens
+    // we will check the use effect and scheduled based on the value
+    setDeviceValue(null);
     // check if we had a device in memory to connect to
     if (connectedDevice !== null) {
       connect(connectedDevice);
+      setDeviceStatus('Disconnected - lost connection. Reconnecting...');
+      return;
     }
 
     setDeviceStatus('Disconnected - lost connection');
@@ -165,6 +260,12 @@ function App(): JSX.Element {
     // set scanning state - true
     console.log('characteristic value update', data);
     setDeviceStatus('Characteristic value update');
+
+    // we take the value and workout an average that we can set as the "last value"
+    setDeviceValue({
+      peripheral: data.peripheral,
+      value: Number(Buffer.from(data.value).toString()),
+    });
   };
 
   /**
@@ -174,7 +275,7 @@ function App(): JSX.Element {
     // we only add the devices supported
     if (isSupported(device.name)) {
       setDeviceState({...devices, ...{[device.id]: device}}); // the type data does not match for device found
-      setDeviceStatus('Device found');
+      setDeviceStatus('Devices found');
     }
   };
 
@@ -235,15 +336,60 @@ function App(): JSX.Element {
         setConnectedDevice(device);
         setDeviceStatus('Connect success');
         bond(device);
-        Notification.scheduleNotification({
-          title: `Connected to: ${device.name}`,
-          body: 'Successfully connected to BLE device',
-        });
+        // Here we get the services connected to the periferal, log out the data
+        getAndconnectToService(device);
       })
       .catch(error => {
         // Failure code
         console.log(error);
         setDeviceStatus('Connect error');
+      });
+  };
+
+  /**
+   * Get the services connected to the periferal and use the device id to get the characteristic
+   */
+  const getAndconnectToService = async (device: Peripheral) => {
+    console.log('getAndconnectToService - device', device);
+    BleManager.retrieveServices(device.id)
+      .then(peripheralInfo => {
+        // Success code
+        console.log('Peripheral info:', peripheralInfo);
+        // Here we need to start notification and start listening on the UUIDs we are connected to
+        const {characteristic, service} =
+          getServiceCharacteristic(peripheralInfo);
+
+        // we make sure the data exists
+        if (service && characteristic) {
+          startServiceNotificationListener(device.id, service, characteristic);
+        }
+      })
+      .catch(error =>
+        console.log('There was an error retrieving services', error),
+      );
+  };
+
+  /**
+   *
+   */
+  const startServiceNotificationListener = async (
+    peripheralId: Peripheral['id'],
+    serviceId: string,
+    characteristicId: string,
+  ) => {
+    BleManager.startNotification(peripheralId, serviceId, characteristicId)
+      .then(() => {
+        // Success code
+        console.log(
+          'Notification started - listening on the data for periferal service/characteristic',
+        );
+      })
+      .catch(error => {
+        // Failure code
+        console.log(
+          'There was an error starting the notification listener for peripheral serivice/characteristic id',
+          error,
+        );
       });
   };
 
@@ -255,7 +401,7 @@ function App(): JSX.Element {
     setScanningState(true);
     console.log('scanning started');
     // https://github.com/innoveit/react-native-ble-manager
-    BleManager.scan([], 5, false)
+    BleManager.scan([], 1, false)
       .then(() => {
         // Success code
         console.log('Scan started');
@@ -292,11 +438,18 @@ function App(): JSX.Element {
           !activeConnectedMatch ? connect(item) : disconnect(item)
         }
         key={item.id}>
-        <View>
-          <Text>Name: {item.name}</Text>
-          <Text>RSSI: {item.rssi}</Text>
-          <Text>ID: {item.id}</Text>
-        </View>
+        <>
+          <View>
+            <Text>Name: {item.name}</Text>
+            <Text>RSSI: {item.rssi}</Text>
+            <Text>ID: {item.id}</Text>
+          </View>
+          {deviceValue && (
+            <View>
+              <Text>: {deviceValue.value}</Text>
+            </View>
+          )}
+        </>
       </TouchableHighlight>
     );
   };
