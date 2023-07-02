@@ -21,76 +21,12 @@ import BleManager, {
   Peripheral,
 } from 'react-native-ble-manager';
 import {Buffer} from 'buffer';
-
-// APP
-const supported_name = 'beverage_notifier';
+import {TEMP_NOTIFIER_THRESHOLD} from './constants';
+import {getServiceCharacteristic, isPeripheralSupported} from './helpers';
 
 // BLE constants
 const BleManagerModule = NativeModules.BleManager;
 const bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
-
-// Helpers
-
-/**
- * Get the service and characteristic uuids
- * Here we pull out the characteristing and service from the recieved data from the connected peripheral.
- * The data returns the properties as a list and we need to get the correct uuid values that match regex 128bit uuid
- * @param peripheralRetrievedInfo
- */
-
-type CHARACTERISTIC = {
-  characteristic: string;
-  service: string;
-  properties: unknown; // this we dont know or use for now
-  descriptors?: unknown; // this we dont know or use for now
-};
-
-type SERVICE = {
-  uuid: string;
-};
-
-function getServiceCharacteristic(peripheralRetrievedInfo: any) {
-  let result: {
-    service: string | null;
-    characteristic: string | null;
-  } = {
-    service: null,
-    characteristic: null,
-  };
-
-  const {services, characteristics} = peripheralRetrievedInfo;
-
-  if (!services) {
-    return result;
-  }
-  if (!characteristics) {
-    return result;
-  }
-
-  // regular expression to make sure the value matches the type of uuid
-  const regexUUID =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-  // NOTE: NOT IDEAL TO LOOP AND REPLACE LATEST CHARACTERISTIC/SERVICE AS THERE CAN BE MANY
-  // check services if we find a match
-  services.forEach((element: SERVICE) => {
-    // we make sure it is a uuid that we add
-    if (regexUUID.test(element.uuid)) {
-      result.service = element.uuid;
-    }
-  });
-
-  // NOTE: NOT IDEAL TO LOOP AND REPLACE LATEST CHARACTERISTIC/SERVICE AS THERE CAN BE MANY
-  //check characteristics if we find a match
-  characteristics.forEach((element: CHARACTERISTIC) => {
-    // we make sure it is a uuid that we add
-    if (regexUUID.test(element.characteristic)) {
-      result.characteristic = element.characteristic;
-    }
-  });
-
-  return result;
-}
 
 function App(): JSX.Element {
   const [isScanning, setScanningState] = useState<boolean>(false);
@@ -106,9 +42,13 @@ function App(): JSX.Element {
     value: number;
   } | null>(null);
 
-  // rerenders when data changes or we can rerender the app data here
+  /**
+   * rerenders when data changes or we can rerender the app data here
+   */
   useEffect(() => {
-    // This happens after permissions - async functions
+    // Request permissions
+    handleAndroidPermissions();
+
     try {
       BleManager.start()
         .then(() => console.debug('BleManager started.'))
@@ -138,9 +78,6 @@ function App(): JSX.Element {
       ),
     ];
 
-    // Ask permissions for services access
-    handleAndroidPermissions();
-
     return () => {
       console.debug('[app] main component unmounting. Removing listeners...');
       for (const listener of listeners) {
@@ -153,6 +90,10 @@ function App(): JSX.Element {
    * Check if the value changes and is not nil on a connected device
    */
   useEffect(() => {
+    console.log('---');
+    console.log(connectedDevice);
+    console.log(deviceValue);
+    console.log('---');
     if (!connectedDevice) {
       return;
     }
@@ -162,8 +103,8 @@ function App(): JSX.Element {
     }
 
     const {value} = deviceValue;
-    console.log(value);
-    if (value < 30) {
+    console.log('value', value);
+    if (value < TEMP_NOTIFIER_THRESHOLD) {
       Notification.scheduleNotification({
         title: 'Beverage temps are getting colder...',
         body: `Current temps: ${value}`,
@@ -174,7 +115,6 @@ function App(): JSX.Element {
   /**
    * Handle the permissions that needs to be asked and set before anything can be used
    */
-
   const handleAndroidPermissions = () => {
     if (Platform.OS === 'android' && Platform.Version >= 31) {
       PermissionsAndroid.requestMultiple([
@@ -273,7 +213,7 @@ function App(): JSX.Element {
    */
   const handleDiscover = (device: Peripheral) => {
     // we only add the devices supported
-    if (isSupported(device.name)) {
+    if (isPeripheralSupported(device.name)) {
       setDeviceState({...devices, ...{[device.id]: device}}); // the type data does not match for device found
       setDeviceStatus('Devices found');
     }
@@ -295,10 +235,6 @@ function App(): JSX.Element {
   };
 
   /**
-   * The functions that can invoke functionality of trying to find, get and set peripherals
-   */
-
-  /**
    * disconnect from peripheral
    */
   const disconnect = (device: Peripheral) => {
@@ -309,12 +245,6 @@ function App(): JSX.Element {
       .then(() => {
         setDeviceStatus('Disconnect success');
         console.log('Disconnected');
-        // remove from devices list and update state - we dont need to remove from list
-        // we will however not be allowed to connect untill next start device cycle
-
-        // const updated_devices = Object.assign({}, devices);
-        // delete updated_devices[device.id];
-        // setDeviceState({...updated_devices});
       })
       .catch(error => {
         // Failure code
@@ -400,7 +330,6 @@ function App(): JSX.Element {
     setDeviceState({});
     setScanningState(true);
     console.log('scanning started');
-    // https://github.com/innoveit/react-native-ble-manager
     BleManager.scan([], 1, false)
       .then(() => {
         // Success code
@@ -452,14 +381,6 @@ function App(): JSX.Element {
         </>
       </TouchableHighlight>
     );
-  };
-
-  /**
-   * Checks the support for crud made devices only - ignores the rest
-   */
-  const isSupported = (deviceName: Peripheral['name']) => {
-    const charList = deviceName?.split('::') ?? ['']; // default to something that wont match
-    return charList[charList.length - 1] === supported_name;
   };
 
   /**
