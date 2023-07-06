@@ -5,13 +5,11 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  PermissionsAndroid,
   View,
   NativeEventEmitter,
   NativeModules,
   Text,
   TouchableHighlight,
-  Platform,
 } from 'react-native';
 import Notification from './Notifications';
 import BleManager, {
@@ -21,8 +19,9 @@ import BleManager, {
   Peripheral,
 } from 'react-native-ble-manager';
 import {Buffer} from 'buffer';
-import {TEMP_NOTIFIER_THRESHOLD} from './constants';
+import {TEMP_NOTIFIER_THRESHOLD, TEMP_LOW, TEMP_MED} from './constants';
 import {getServiceCharacteristic, isPeripheralSupported} from './helpers';
+import Notifications from './Notifications';
 
 // BLE constants
 const BleManagerModule = NativeModules.BleManager;
@@ -47,7 +46,7 @@ function App(): JSX.Element {
    */
   useEffect(() => {
     // Request permissions
-    handleAndroidPermissions();
+    Notifications.checkPermissions();
 
     try {
       BleManager.start()
@@ -90,10 +89,6 @@ function App(): JSX.Element {
    * Check if the value changes and is not nil on a connected device
    */
   useEffect(() => {
-    console.log('---');
-    console.log(connectedDevice);
-    console.log(deviceValue);
-    console.log('---');
     if (!connectedDevice) {
       return;
     }
@@ -111,52 +106,6 @@ function App(): JSX.Element {
       });
     }
   }, [connectedDevice, deviceValue]);
-
-  /**
-   * Handle the permissions that needs to be asked and set before anything can be used
-   */
-  const handleAndroidPermissions = () => {
-    if (Platform.OS === 'android' && Platform.Version >= 31) {
-      PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-      ]).then(result => {
-        if (result) {
-          console.debug(
-            '[handleAndroidPermissions] User accepts runtime permissions android 12+',
-          );
-        } else {
-          console.error(
-            '[handleAndroidPermissions] User refuses runtime permissions android 12+',
-          );
-        }
-      });
-    } else if (Platform.OS === 'android' && Platform.Version >= 23) {
-      PermissionsAndroid.check(
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-      ).then(checkResult => {
-        if (checkResult) {
-          console.debug(
-            '[handleAndroidPermissions] runtime permission Android <12 already OK',
-          );
-        } else {
-          PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          ).then(requestResult => {
-            if (requestResult) {
-              console.debug(
-                '[handleAndroidPermissions] User accepts runtime permission android <12',
-              );
-            } else {
-              console.error(
-                '[handleAndroidPermissions] User refuses runtime permission android <12',
-              );
-            }
-          });
-        }
-      });
-    }
-  };
 
   /**
    * Callback functions that run based on the listeners and side effects than happened.
@@ -177,9 +126,8 @@ function App(): JSX.Element {
    * Disconnect
    */
   const handleDisconnected = (event: BleDisconnectPeripheralEvent) => {
-    // clear the values regarless when a disconnect happens
     // we will check the use effect and scheduled based on the value
-    setDeviceValue(null);
+
     // check if we had a device in memory to connect to
     if (connectedDevice !== null) {
       connect(connectedDevice);
@@ -187,6 +135,8 @@ function App(): JSX.Element {
       return;
     }
 
+    // clear the values regarless when a disconnect happens
+    setDeviceValue(null);
     setDeviceStatus('Disconnected - lost connection');
     console.log('Disconnected - lost connection to device', event);
   };
@@ -358,6 +308,9 @@ function App(): JSX.Element {
     setScanningState(false);
   };
 
+  /**
+   * Item for the BLE devices to connect to
+   */
   const renderItem = (item: Peripheral) => {
     const activeConnectedMatch = connectedDevice?.id === item.id;
     return (
@@ -373,11 +326,6 @@ function App(): JSX.Element {
             <Text>RSSI: {item.rssi}</Text>
             <Text>ID: {item.id}</Text>
           </View>
-          {deviceValue && (
-            <View>
-              <Text>: {deviceValue.value}</Text>
-            </View>
-          )}
         </>
       </TouchableHighlight>
     );
@@ -398,6 +346,19 @@ function App(): JSX.Element {
     );
   };
 
+  /**
+   * Temp styles for the UI
+   */
+  const renderTempIndicatorStyle = (temp: any) => {
+    if (temp <= TEMP_LOW) {
+      return styles.temp_reading_low;
+    }
+    if (temp > TEMP_LOW && temp < TEMP_MED) {
+      return styles.temp_reading_med;
+    }
+    return styles.temp_reading_high;
+  };
+
   return (
     <SafeAreaView style={[styles.container]}>
       <View style={[styles.container]}>
@@ -407,9 +368,8 @@ function App(): JSX.Element {
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-          <Text style={[styles.text_header]}>crud.sh</Text>
-          <Text style={[styles.text_sub_header]}>beverage notifier</Text>
-          <Text style={[styles.text_sub_header]}> --- </Text>
+          <Text style={[styles.text_header]}>beverage notifier</Text>
+          <Text style={[styles.text_sub_header]}>crud.sh</Text>
           <Text
             style={[
               styles.text_sub_header,
@@ -417,7 +377,12 @@ function App(): JSX.Element {
               styles.text_w_300,
               {alignSelf: 'center'},
             ]}>
-            {connectedDevice ? 'To disconnect from device, tap it again' : ' '}
+            {deviceValue && (
+              <Text
+                style={[
+                  renderTempIndicatorStyle(deviceValue.value),
+                ]}>{`${deviceValue.value}°C`}</Text>
+            )}
           </Text>
         </View>
         {!isScanning ? (
@@ -486,10 +451,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#2b2b2b',
   },
   text_header: {
-    fontSize: 45,
+    fontSize: 30,
   },
   text_sub_header: {
     fontSize: 20,
+  },
+  temp_reading_high: {
+    fontSize: 35,
+    color: '#cb8d85',
+  },
+  temp_reading_med: {
+    fontSize: 35,
+    color: '#cbcb85',
+  },
+  temp_reading_low: {
+    fontSize: 35,
+    color: '#85cbbe',
   },
   text_sm_italic: {
     padding: 5,

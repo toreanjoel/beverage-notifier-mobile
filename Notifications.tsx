@@ -23,17 +23,18 @@ class Notifications {
     // Listen for events
     // This is called when the app is in the foreground
     notifee.onForegroundEvent(({type, detail}) => {
+      const {notification} = detail;
       switch (type) {
         case EventType.DISMISSED:
-          console.log('User dismissed notification', detail.notification);
+          console.log('User dismissed notification', notification);
           break;
         case EventType.PRESS:
-          console.log('User pressed notification', detail.notification);
+          console.log('User pressed notification', notification);
           break;
       }
     });
 
-    // This is called when the app is in the background
+    // // This is called when the app is in the background
     notifee.onBackgroundEvent(async ({type, detail}) => {
       const {notification} = detail;
       console.log('Notification received: background', type, detail);
@@ -72,9 +73,6 @@ class Notifications {
 
   // The function we call to schedule a notifificaion
   public async scheduleNotification(data: ScheduleData) {
-    // Check if the user has granted the permission to send notifications
-    const hasPermissions = await this.checkPermissions();
-
     // destructure schedule time - default milliseconds if not set
     const {
       hours = 0,
@@ -85,47 +83,44 @@ class Notifications {
       body = 'Some random tile',
     } = data;
 
-    // If the user has granted the permission, schedule the notification
-    if (hasPermissions) {
-      // Create a timestamp trigger for the notification - we set it 5 seconds in the future
-      const date = new Date(Date.now());
-      date.setHours(date.getHours() + hours); // timezone?
-      date.setMinutes(date.getMinutes() + minutes);
-      date.setSeconds(date.getSeconds() + seconds);
-      date.setMilliseconds(date.getMilliseconds() + milliseconds);
+    // Create a timestamp trigger for the notification - we set it 5 seconds in the future
+    const date = new Date(Date.now());
+    date.setHours(date.getHours() + hours); // timezone?
+    date.setMinutes(date.getMinutes() + minutes);
+    date.setSeconds(date.getSeconds() + seconds);
+    date.setMilliseconds(date.getMilliseconds() + milliseconds);
 
-      const trigger: TimestampTrigger = {
-        type: TriggerType.TIMESTAMP,
-        timestamp: date.getTime(), // convert the time to unix timestamp to be of type number
-      };
+    const trigger: TimestampTrigger = {
+      type: TriggerType.TIMESTAMP,
+      timestamp: date.getTime(), // convert the time to unix timestamp to be of type number
+    };
 
-      // Create a channel (required for Android)
-      const channelId = await notifee.createChannel({
-        id: 'default',
-        name: 'Default Channel',
-      });
+    // Create a channel (required for Android)
+    const channelId = await notifee.createChannel({
+      id: 'default',
+      name: 'Default Channel',
+    });
 
-      // Create the notification details
-      const notificationDetails = {
+    // Create the notification details
+    const notificationDetails = {
+      id: '1',
+      title,
+      body,
+      android: {
+        channelId,
+        pressAction: {
+          id: 'default',
+        },
+      },
+      data: {
         id: '1',
-        title,
-        body,
-        android: {
-          channelId,
-          pressAction: {
-            id: 'default',
-          },
-        },
-        data: {
-          id: '1',
-          action: 'reminder',
-          details: {},
-        },
-      };
+        action: 'reminder',
+        details: {},
+      },
+    };
 
-      // Schedule the notification
-      await notifee.createTriggerNotification(notificationDetails, trigger);
-    }
+    // Schedule the notification
+    await notifee.createTriggerNotification(notificationDetails, trigger);
   }
 
   // Get the queue of the pending notifications that are scheduled
